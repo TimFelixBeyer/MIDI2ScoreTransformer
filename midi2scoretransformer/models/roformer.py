@@ -116,7 +116,7 @@ class CustomRoFormerSelfAttention(nn.Module):
                     query_layer,
                     key_layer,
                     value_layer,
-                    is_causal=True,
+                    is_causal=True if past_key_value is None else False,
                     attn_mask=attention_mask,
                     dropout_p=self.dropout if self.training else 0
                 )

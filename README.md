@@ -9,9 +9,11 @@ The code is written in Python 3.11 and relies on the following packages
 
 Due to delays and difficulties merging changes with upstream versions, we currently require installing custom versions of the following packages (will be done automatically with `requirements.txt`):
 
-- `muster`: https://github.com/TimFelixBeyer/amtevaluation.github.io (fixes various memory leak issues of the original version)
 - `music21`: https://github.com/TimFelixBeyer/music21 (fixes tie-stripping and contains various other tweaks)
 - `score_transformer`: https://github.com/TimFelixBeyer/ScoreTransformer (for score_similarity metrics and tokenization comparisons)
+
+In addition, you must manually clone and install this package:
+- `muster`: https://github.com/TimFelixBeyer/amtevaluation.github.io (fixes various memory leak issues of the original version)
 
 ### Datasets
 Please use this version of the ASAP-Dataset as it contains some fixes.

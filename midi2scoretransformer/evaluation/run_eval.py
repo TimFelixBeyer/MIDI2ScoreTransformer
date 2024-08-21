@@ -53,7 +53,6 @@ if __name__ == '__main__':
     sorted_data = sorted(zip(lengths, inputs, paths), key=lambda x: x[0])
     lengths, inputs, paths = zip(*sorted_data)
 
-    save_path = f"results/cache/y_full_{args.split}_{args.model.replace('/', '_')}.pt"
     print("Running inference")
     model = Roformer.load_from_checkpoint(args.model)
     model.to(device)
