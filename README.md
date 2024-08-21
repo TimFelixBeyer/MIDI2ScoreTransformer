@@ -13,9 +13,25 @@ Due to delays and difficulties merging changes with upstream versions, we curren
 - `music21`: https://github.com/TimFelixBeyer/music21 (fixes tie-stripping and contains various other tweaks)
 - `score_transformer`: https://github.com/TimFelixBeyer/ScoreTransformer (for score_similarity metrics and tokenization comparisons)
 
-## Dataset
+### Datasets
 Please use this version of the ASAP-Dataset as it contains some fixes.
 
-- `ASAPDataset`: [https://github.com/TimFelixBeyer/ASAPDataset](https://github.com/TimFelixBeyer/asap-dataset/tree/8cba199e15931975542010a7ea2ff94a6fc9cbee) (contains a few fixes for the ASAP dataset, make sure you select the correct commit for reproducibility)
+- `ASAPDataset`: [https://github.com/TimFelixBeyer/ASAPDataset](https://github.com/TimFelixBeyer/asap-dataset/tree/8cba199e15931975542010a7ea2ff94a6fc9cbee) (contains a few fixes for the ASAP dataset, make sure you select the correct commit for reproducibility and place the `asap-dataset` folder into the `data` folder).
+- `ACPAS`: [https://cheriell.github.io/research/ACPAS_dataset/](https://cheriell.github.io/research/ACPAS_dataset/) (only download `metadata_R.csv` and `metadata_S.csv`, place them into a folder called `ACPAS-dataset` and put it into the `data` folder)
 
-Place the `asap-dataset` folder into the `data` folder.
+Afterwards, your `data` folder should look like this:
+```
+data
+├── ACPAS-dataset
+│   ├── metadata_R.csv
+│   └── metadata_S.csv
+└── asap-dataset
+```
+
+## Setup (Inference)
+1. Download the `MIDI2ScoreTF.ckpt` from GitHub ('Releases' section) and place it where you like.
+
+
+### Setup (Training)
+1. Run `dataset.py` to preprocess the datasets and populate the cache.
+2. Run `chunker.py` to create the beat-aligned chunks.

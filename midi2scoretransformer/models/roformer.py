@@ -20,8 +20,7 @@ from transformers.modeling_outputs import \
 from transformers.models.roformer.modeling_roformer import (RoFormerAttention,
                                                             RoFormerEncoder,
                                                             RoFormerLayer)
-from embedding import (MIDIEmbeddings, MIDIUnembeddings, MXLEmbeddings,
-                       MXLUnembeddings)
+from models.embedding import MIDIEmbeddings, MXLEmbeddings, MXLUnembeddings
 from models.model import BaseModel
 
 
@@ -362,6 +361,7 @@ class RoFormerModel(RoFormerModelBase):
     def __init__(self, config):
         super().__init__(config)
         self.encoder = CustomRoFormerEncoder(config)
+        del self.embeddings
 
 
 class Roformer(BaseModel):
@@ -370,8 +370,6 @@ class Roformer(BaseModel):
         self.encoder = RoFormerModel(enc_configuration)
         self.decoder = RoFormerModel(dec_configuration)
         self.embeddings_enc = MIDIEmbeddings(enc_configuration)
-        # unembeddings_enc is unused, but required for compatibility with the rest of the codebase
-        self.unembeddings_enc = MIDIUnembeddings(enc_configuration)
         self.embeddings_dec = MXLEmbeddings(dec_configuration)
         self.unembeddings_dec = MXLUnembeddings(dec_configuration)
 
@@ -419,6 +417,8 @@ class Roformer(BaseModel):
         input_streams: Dict[str, torch.Tensor],
         encoder_hidden_states: Optional[torch.FloatTensor] = None,
         encoder_attention_mask: Optional[torch.FloatTensor] = None,
+        past_key_values=None,
+        use_cache=False,
     ) -> Dict[str, torch.Tensor]:
 
         output_attentions = self.dec_config.output_attentions
@@ -449,18 +449,20 @@ class Roformer(BaseModel):
         # pass to model
         embedding_output = self.embeddings_dec({k: v[:, :T] for k, v in input_streams.items()})
 
-        if hasattr(self, "embeddings_project"):
-            embedding_output = self.decoder.embeddings_project(embedding_output)
-
         decoder_outputs = self.decoder.encoder(
             embedding_output,
             attention_mask=extended_attention_mask,
             head_mask=None,
             encoder_hidden_states=encoder_hidden_states,
             encoder_attention_mask=encoder_extended_attention_mask,
-            use_cache=False,
+            past_key_values=past_key_values,
+            use_cache=use_cache,
             output_attentions=output_attentions,
             output_hidden_states=output_hidden_states,
             return_dict=return_dict,
         )
-        return self.unembeddings_dec(decoder_outputs.last_hidden_state)
+        out_proj = self.unembeddings_dec(decoder_outputs.last_hidden_state)
+        if use_cache:
+            return out_proj, decoder_outputs.past_key_values
+        else:
+            return out_proj

@@ -6,8 +6,6 @@ Note that predictions are cached, so if you want to re-run the evaluation from s
 use the --nocache flag.
 """
 import argparse
-import datetime as dt
-import json
 import os
 import sys
 import torch
@@ -15,11 +13,12 @@ from joblib import Parallel, delayed
 from tqdm import tqdm
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from midi2scoretransformer.dataset import ASAPDataset
+from dataset import ASAPDataset
 from utils import eval, infer, pad_batch
 from models.roformer import Roformer
 from tokenizer import MultistreamTokenizer
 
+device = "cuda" if torch.cuda.is_available() else ("mps" if torch.backends.mps.is_available() else "cpu")
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
@@ -27,7 +26,6 @@ if __name__ == '__main__':
     parser.add_argument("--model", type=str, default=None)
     parser.add_argument("--fast_eval", action="store_true")
     args = parser.parse_args()
-
 
     q = ASAPDataset("./data/", args.split)
     batch_size = 16
@@ -48,7 +46,7 @@ if __name__ == '__main__':
     lengths = []
     for midi, gt_mxl in tqdm(paths):
         x = MultistreamTokenizer.tokenize_midi(midi)
-        inputs.append({k: v.unsqueeze(0).to("cuda") for k, v in x.items()})
+        inputs.append({k: v.unsqueeze(0).to(device) for k, v in x.items()})
         lengths.append(x["pitch"].shape[0])
 
     # Sort everything by length
@@ -56,27 +54,24 @@ if __name__ == '__main__':
     lengths, inputs, paths = zip(*sorted_data)
 
     save_path = f"results/cache/y_full_{args.split}_{args.model.replace('/', '_')}.pt"
-    if args.nocache or (not os.path.exists(save_path)):
-        print("Could not load from cache, running inference")
-        model = Roformer.load_from_checkpoint(args.model)
-        model.to("cuda")
-        model.eval()
+    print("Running inference")
+    model = Roformer.load_from_checkpoint(args.model)
+    model.to(device)
+    model.eval()
 
-        # First run everything through the model (batched)
-        y_full = None
-        for i in tqdm(range(0, len(inputs), batch_size)):
-            x = pad_batch(inputs[i : i + batch_size])
-            y_hat = infer(x, model, overlap=overlap, chunk=512, kv_cache=False)
-            if y_full is None:
-                y_full = y_hat
-            else:
-                y_full = pad_batch([y_full, y_hat])
-        torch.save(y_full, save_path)
-    y_full = torch.load(save_path)
+    # First run everything through the model (batched)
+    y_full = None
+    for i in tqdm(range(0, len(inputs), batch_size)):
+        x = pad_batch(inputs[i : i + batch_size])
+        y_hat = infer(x, model, overlap=overlap, chunk=512, kv_cache=True)
+        if y_full is None:
+            y_full = y_hat
+        else:
+            y_full = pad_batch([y_full, y_hat])
 
     print(f"Computing score similarities")
     sims = Parallel(n_jobs=16, verbose=10)(
-        delayed(eval)({k: v[i, :l] for k, v in y_full.items()}, p[1], args.fast_eval)
+        delayed(eval)({k: v[i, :l] for k, v in y_full.items()}, p[1])
         for i, (p, l) in enumerate(zip(paths, lengths))
     )
 

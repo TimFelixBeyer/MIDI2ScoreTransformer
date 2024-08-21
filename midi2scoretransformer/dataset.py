@@ -6,6 +6,8 @@ The first run is significantly slower as metadata and caches are built.
 Subsequent runs are much faster.
 """
 from functools import lru_cache
+from tqdm import tqdm
+from joblib import Parallel, delayed
 import hashlib
 import json
 import os
@@ -81,6 +83,9 @@ class ASAPDataset(Dataset):
         self.id = id
         self.metadata = self._load_metadata(data_dir, split)
 
+        if self.cache:
+            os.makedirs(os.path.join(data_dir, "cache"), exist_ok=True)
+
     def _load_metadata(self, data_dir: str, split: str) -> pd.DataFrame:
         data_real = pd.read_csv(data_dir + "/ACPAS-dataset/metadata_R.csv")
         data_synthetic = pd.read_csv(data_dir + "/ACPAS-dataset/metadata_S.csv")
@@ -125,7 +130,7 @@ class ASAPDataset(Dataset):
                     # fmt: off
                     pkl_file = os.path.join(self.data_dir, "cache", f"{sha256(sample_path + self.id)}_.pkl")
                     # fmt: on
-                    input_stream, output_stream = torch.load(pkl_file)
+                    input_stream, output_stream = torch.load(pkl_file, weights_only=False)
                     self.lengths.append(len(input_stream['onset']))
                 self.lengths = torch.FloatTensor(self.lengths)
             # When creating the cache for the first time, we don't have the lengths yet,
@@ -156,7 +161,7 @@ class ASAPDataset(Dataset):
             output_stream = MultistreamTokenizer.parse_mxl(score_path)
             torch.save((input_stream, output_stream), pkl_file)
 
-        input_stream, output_stream = torch.load(pkl_file)
+        input_stream, output_stream = torch.load(pkl_file, weights_only=False)
 
         if self.augmentations.get("transpose", False):
             shift = random.randint(-6, 6)
@@ -244,7 +249,7 @@ class ASAPDataset(Dataset):
             return input_stream, output_stream, sample_path, sample_dir + "/xml_score.musicxml"
         return input_stream, output_stream
 
-    # @lru_cache(None)
+    @lru_cache(None)
     @staticmethod
     def _accidental_map(p, a, i):
         def alter_map(accidental):
@@ -393,8 +398,14 @@ def sha256(string: str) -> str:
     return h.hexdigest()
 
 if __name__ == "__main__":
-    print("Initializing QuantizationDataset")
-    print("ASAP")
+    print("Initializing ASAPDataset")
     for split in ("all", "train", "validation", "test"):
         q = ASAPDataset("./data/", split, seq_length=None, padding=None, cache=True, return_continous=False)
         print(split, len(q))
+
+    q = ASAPDataset("./data/", "all", seq_length=None, padding=None, cache=True, return_continous=True)
+    print("Filling cache")
+    # You can parallelize this loop, but you have to comment out both uses of lru_cache
+    for i in tqdm(range(len(q))):
+        q[i]
+    # Parallel(n_jobs=8, verbose=10)(delayed(q.__getitem__)(i) for i in tqdm(range(len(q))))

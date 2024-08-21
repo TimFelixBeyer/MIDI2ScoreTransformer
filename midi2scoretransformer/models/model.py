@@ -30,7 +30,7 @@ class BaseModel(pl.LightningModule):
         )
 
     @torch.no_grad()
-    def generate(self, x, y=None, max_length=512, temperature=1.0, top_k=1):
+    def generate(self, x, y=None, max_length=512, temperature=1.0, top_k=1, kv_cache=False) -> dict[str, torch.Tensor]:
         """Generate a sequence of tokens from the model.
         If y with T timesteps is provided, only max_length - T tokens will be generated.
         The first T tokens will be y_hist.
@@ -45,6 +45,8 @@ class BaseModel(pl.LightningModule):
             "downbeat": torch.zeros((B, 1, conf.out_downbeat_vocab_size), device=device),
             "duration": torch.zeros((B, 1, conf.out_duration_vocab_size), device=device),
             "pitch": torch.zeros((B, 1, conf.out_pitch_vocab_size), device=device),
+            "accidental": torch.zeros((B, 1, conf.out_accidental_vocab_size), device=device),
+            "keysignature": torch.zeros((B, 1, conf.out_keysignature_vocab_size), device=device),
             "velocity": torch.zeros((B, 1, conf.out_velocity_vocab_size), device=device),
             "grace": torch.zeros((B, 1, conf.out_grace_vocab_size), device=device),
             "trill": torch.zeros((B, 1, conf.out_trill_vocab_size), device=device),
@@ -55,34 +57,81 @@ class BaseModel(pl.LightningModule):
             "pad": torch.zeros((B, 1), device=device).long(),
         }
         # fmt: on
+        if "encoder" in self.hyperparameters["components"]:
+            encoder_hidden_states = self.forward_enc(
+                x, attention_mask=x["pad"]
+            )  # (B, T, D)
+            encoder_attention_mask = x["pad"]
+        else:
+            encoder_hidden_states = None
+            encoder_attention_mask = None
         if y is None:
             y = y_start_token
+            past_key_values = None
         else:
             y = {k: torch.cat([y_start_token[k], y[k]], dim=1) for k in y.keys()}
-        T_cond = y["pad"].shape[1]
-
-        encoder_hidden_states = self.forward_enc(
-            x, attention_mask=x["pad"]
-        )  # (B, T, D)
-        encoder_attention_mask = x["pad"]
-
-        for _ in range(max_length + 1 - T_cond):
-            shifted_y = {k: torch.roll(v, -1, 1) for k, v in y.items()}
-            y_pred = self.forward_dec(
-                input_streams=shifted_y,
+            # Have to populate KV-cache
+            past_key_values = self.forward_dec(
+                input_streams={k: torch.roll(v[:, :-1], -1, 1) for k, v in y.items()},
                 encoder_hidden_states=encoder_hidden_states,
                 encoder_attention_mask=encoder_attention_mask,
-            )
+                past_key_values=None,
+                use_cache=True
+            )[1]
+        for _ in range(max_length + 1 - y["pad"].shape[1]):
+            if kv_cache:
+                y_pred, past_key_values = self.forward_dec(
+                    input_streams={k: v[:, -1:] for k, v in y.items()},
+                    encoder_hidden_states=encoder_hidden_states,
+                    encoder_attention_mask=encoder_attention_mask,
+                    past_key_values=past_key_values,
+                    use_cache=True
+                )
+            else:
+                shifted_y = {k: torch.roll(v, -1, 1) for k, v in y.items()}
+                y_pred = self.forward_dec(
+                    input_streams=shifted_y,
+                    encoder_hidden_states=encoder_hidden_states,
+                    encoder_attention_mask=encoder_attention_mask,
+                )
             for k in y.keys():
                 # forward the model to get the logits for the index in the sequence
                 logits = y_pred[k]
                 # pluck the logits at the final step and scale by desired temperature
                 logits = logits[:, -1, :] / temperature
                 # ensure that we sample a downbeat wherever the offset decreases, since that guarantees a measure change!
-                if k == "downbeat" and y_pred["offset"].shape[1] > 1:
-                    is_downbeat = y_pred["offset"][:, -1].argmax(-1) < y_pred["offset"][:, -2].argmax(-1)
+                if k == "downbeat" and y["offset"].shape[1] > 1:
+                    is_downbeat = y_pred["offset"][:, -1].argmax(-1) < y["offset"][:, -2].argmax(-1)
                     logits[is_downbeat, 0] = -float("Inf")
 
+                if k == "accidental":
+                    # ensure that we only sample valid accidentals
+                    {
+                        0: 'double-flat',
+                        1: 'flat',
+                        2: 'natural',
+                        3: 'sharp',
+                        4: 'double-sharp',
+                    }
+                    never_allowed = [0, 4, 6]
+                    impossible_accidentals = {
+                        0:  [1, 4],
+                        1:  [0, 2, 5],
+                        2:  [1, 3],
+                        3:  [2, 4, 5],
+                        4:  [0, 3],
+                        5:  [1, 4],
+                        6:  [0, 2, 5],
+                        7:  [1, 3],
+                        8:  [0, 2, 4, 5],
+                        9:  [1, 3],
+                        10: [2, 4, 5],
+                        11: [0, 3]
+                    }
+                    for i in range(logits.shape[0]):
+                        predicted_pitch = y["pitch"][i, -1].argmax()
+                        options = impossible_accidentals[predicted_pitch.item() % 12] + never_allowed
+                        logits[i, options] = float("-inf")
                 # optionally crop the logits to only the top k options
                 if top_k is not None:
                     v, _ = torch.topk(logits, min(top_k, logits.size(-1)))
@@ -97,7 +146,8 @@ class BaseModel(pl.LightningModule):
                 next_token = torch.multinomial(probs, num_samples=1)  # 633 tok/s
                 # sample from the distribution
                 # next_token = torch.searchsorted(torch.cumsum(probs, dim=-1), torch.rand((B, 1)).to(probs.device)) # 660 tok/s
-                if k == "pad":  # special case
+                if k == "pad":  # special case + NO ARGMAX sampling
+                    next_token = probs.argmax(-1, keepdim=True)
                     y[k] = torch.cat([y[k], next_token], dim=1)
                 else:
                     # Token back to one-hot

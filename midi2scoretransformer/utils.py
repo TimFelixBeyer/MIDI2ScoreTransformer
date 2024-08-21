@@ -8,6 +8,8 @@ from score_transformer import score_similarity
 from tokenizer import MultistreamTokenizer
 from score_utils import postprocess_score
 
+device = "cuda" if torch.cuda.is_available() else "cpu"
+
 
 def eval(y_hat, gt_mxl_path: str) -> dict[str, dict[str, float]|None]:
     mxl = MultistreamTokenizer.detokenize_mxl(y_hat)
@@ -22,6 +24,7 @@ def eval(y_hat, gt_mxl_path: str) -> dict[str, dict[str, float]|None]:
         }
     return sim
     # fmt: on
+
 
 def score_similarity_normalized(est, gt, full=False):
     if est is None or gt is None:
@@ -80,7 +83,7 @@ def infer(x, model, overlap=64, chunk=512, verbose=True, kv_cache=True) -> dict[
         else:
             # Keep the last 'overlap' notes of the previous chunk as context
             y_hat_prev = {k: v[:, -overlap:] if k != 'pad' else v[:, -overlap:, 0] for k, v in y_full.items()}
-            with torch.autocast(device_type='cuda'):
+            with torch.autocast(device_type=device):
                 y_hat = model.generate(x=x_chunk, y=y_hat_prev, top_k=1, max_length=chunk, kv_cache=kv_cache)
             y_hat = {k: v[:, overlap:] for k, v in y_hat.items()}
 
@@ -112,3 +115,49 @@ def pad_batch(batch: list[dict[str, torch.Tensor]]) -> dict[str, torch.Tensor]:
     for k in batch[0].keys():
         out[k] = torch.cat([x[k] for x in batch], dim=0)
     return out
+
+
+def cat_dict(
+    a: dict[str, torch.Tensor], b: dict[str, torch.Tensor], dim=0
+) -> dict[str, torch.Tensor]:
+    assert set(a.keys()) == set(b.keys())
+    return {k: torch.cat([a[k], b[k]], dim=dim) for k in a.keys()}
+
+
+def cut_pad(
+    tensor: torch.Tensor, max_len: int, offset: int, pad_value: int = 0
+) -> torch.Tensor:
+    """
+    Cut a tensor's first dimension to a maximum length and pad the tensor's first
+    dimension to a minimum length.
+
+    Args:
+        tensor (Tensor): tensor to be cut or padded
+        max_len (int): maximum length of the tensor's first dimension
+        offset (int): offset to cut the tensor if too long
+        pad_value (int): value used for padding, default is 0
+
+    Returns:
+        Tensor: tensor cut or padded along its first dimension to shape (max_len,)
+        or (max_len, n_cols) if input is 2D
+    """
+    if tensor.dim() == 1:
+        n = tensor.size(0)
+        if n > max_len:
+            tensor = tensor[offset : offset + max_len]
+        elif n < max_len:
+            pad_size = max_len - n
+            pad = torch.full((pad_size,), pad_value, dtype=tensor.dtype)
+            tensor = torch.cat((tensor, pad), dim=0)
+    elif tensor.dim() == 2:
+        n, n_cols = tensor.size()
+        if n > max_len:
+            tensor = tensor[offset : offset + max_len]
+        elif n < max_len:
+            pad_size = max_len - n
+            pad = torch.full((pad_size, n_cols), pad_value, dtype=tensor.dtype)
+            tensor = torch.cat((tensor, pad), dim=0)
+    else:
+        raise ValueError("Input tensor must be 1D or 2D.")
+
+    return tensor
