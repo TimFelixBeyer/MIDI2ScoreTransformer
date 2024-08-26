@@ -128,10 +128,12 @@ class MXLEmbeddings(nn.Module):
         """
         # Shift everything by 1 if the model is autoregressive
         if self.config.is_autoregressive:
-            shifted_input_streams = {k: torch.roll(v, 1, 1) for k, v in input_streams.items()}
-            for k in shifted_input_streams.keys():
-                shifted_input_streams[k][:, 0] = 0
-            input_streams = shifted_input_streams
+            input_streams = {k: torch.roll(v, 1, 1) for k, v in input_streams.items()}
+            for k in input_streams.keys():
+                # If we only feed a single timestep, we're likely in a generation
+                # with cached embeddings, so we should not set it to 0.
+                if input_streams[k].size(1) > 1:
+                    input_streams[k][:, 0] = 0
         output_embeds = {
             k: self.embeddings[k](v) for k, v in input_streams.items() if k in self.embeddings
         }

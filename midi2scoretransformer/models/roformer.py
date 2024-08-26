@@ -89,14 +89,20 @@ class CustomRoFormerSelfAttention(nn.Module):
         # and values come from an encoder; the attention mask needs to be
         # such that the encoder's padding tokens are not attended to.
         if sinusoidal_pos is not None:
-            if self.rotary_value:
-                query_layer, key_layer, value_layer = self.apply_rotary_position_embeddings(
-                    sinusoidal_pos, query_layer, key_layer, value_layer
+            if past_key_value is not None and self.is_cross_attention:
+                # the past_key_values have already been rotated
+                query_layer, _ = self.apply_rotary_position_embeddings(
+                    sinusoidal_pos, query_layer, query_layer
                 )
             else:
-                query_layer, key_layer = self.apply_rotary_position_embeddings(
-                    sinusoidal_pos, query_layer, key_layer
-                )
+                if self.rotary_value:
+                    query_layer, key_layer, value_layer = self.apply_rotary_position_embeddings(
+                        sinusoidal_pos, query_layer, key_layer, value_layer
+                    )
+                else:
+                    query_layer, key_layer = self.apply_rotary_position_embeddings(
+                        sinusoidal_pos, query_layer, key_layer
+                    )
         if not self.is_cross_attention and past_key_value is not None:
             key_layer = torch.cat([past_key_value[0], key_layer], dim=2)
             value_layer = torch.cat([past_key_value[1], value_layer], dim=2)
@@ -417,7 +423,7 @@ class Roformer(BaseModel):
         input_streams: Dict[str, torch.Tensor],
         encoder_hidden_states: Optional[torch.FloatTensor] = None,
         encoder_attention_mask: Optional[torch.FloatTensor] = None,
-        past_key_values=None,
+        past_key_values: Optional[tuple[torch.Tensor]] = None,
         use_cache=False,
     ) -> Dict[str, torch.Tensor]:
 
@@ -426,6 +432,8 @@ class Roformer(BaseModel):
         return_dict = self.dec_config.use_return_dict
 
         B, T = input_streams["offset"].size()[:2]
+        if past_key_values is not None:
+            T += past_key_values[0][0].size(2)
         device = input_streams["offset"].device
 
         # Make/convert attention masks
@@ -446,6 +454,8 @@ class Roformer(BaseModel):
             )
         else:
             encoder_extended_attention_mask = None
+        if use_cache:
+            extended_attention_mask = extended_attention_mask[..., -input_streams['pad'].size(1):, :]
         # pass to model
         embedding_output = self.embeddings_dec({k: v[:, :T] for k, v in input_streams.items()})
 
