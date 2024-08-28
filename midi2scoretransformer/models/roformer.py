@@ -424,7 +424,7 @@ class Roformer(BaseModel):
         encoder_hidden_states: Optional[torch.FloatTensor] = None,
         encoder_attention_mask: Optional[torch.FloatTensor] = None,
         past_key_values: Optional[tuple[torch.Tensor]] = None,
-        use_cache=False,
+        use_cache: bool = False,
     ) -> Dict[str, torch.Tensor]:
 
         output_attentions = self.dec_config.output_attentions

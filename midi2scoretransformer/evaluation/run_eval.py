@@ -8,15 +8,17 @@ use the --nocache flag.
 import argparse
 import os
 import sys
+
 import torch
 from joblib import Parallel, delayed
 from tqdm import tqdm
+
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from dataset import ASAPDataset
-from utils import eval, infer, pad_batch
 from models.roformer import Roformer
 from tokenizer import MultistreamTokenizer
+from utils import eval, infer, pad_batch
 
 device = "cuda" if torch.cuda.is_available() else ("mps" if torch.backends.mps.is_available() else "cpu")
 
@@ -96,7 +98,7 @@ if __name__ == '__main__':
         print(f"{round(100*sims_aggregate['mxl <-> gt_mxl'][k], 2):5.2f}", end=" ")
 
     print("\nTable 4:")
-    print("SOTA  6.86 25.03  9.67   -     -     -")
+    print("SOTA  6.86 26.74  9.69   -     -     -")
     print(f"Ours", end=" ")
     for k in ["StaffAssignment", "StemDirection", "NoteSpelling", "GraceF1", "StaccatoF1", "TrillF1"]:
         print(f"{round(100*sims_aggregate['mxl <-> gt_mxl'][k], 2):5.2f}", end=" ")
