@@ -1,5 +1,5 @@
 # MIDI2ScoreTransformer
-Code for the ISMIR 2024 paper "End-to-end Piano Performance-MIDI to Score Conversion with Transformers"
+Code for the ISMIR 2024 paper ["End-to-end Piano Performance-MIDI to Score Conversion with Transformers"](https://arxiv.org/abs/2410.00210)
 
 ## Installation
 The code is written in Python 3.11 and relies on the following packages
