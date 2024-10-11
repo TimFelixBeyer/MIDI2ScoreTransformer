@@ -37,3 +37,4 @@ data
 ### Setup (Training)
 1. Run `dataset.py` to preprocess the datasets and populate the cache.
 2. Run `chunker.py` to create the beat-aligned chunks.
+3. More instructions to follow
