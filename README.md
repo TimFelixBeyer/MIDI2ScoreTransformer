@@ -30,7 +30,7 @@ data
 └── asap-dataset
 ```
 
-## Setup (Inference)
+### Setup (Inference)
 1. Download the `MIDI2ScoreTF.ckpt` from GitHub ('Releases' section) and place it where you like.
 
 
